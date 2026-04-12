@@ -1,0 +1,86 @@
+"""Risk-aware reward shaping functions for the trading environment."""
+
+from __future__ import annotations
+
+from typing import ClassVar
+
+import numpy as np
+
+
+class RewardScheme:
+    """
+    Pluggable reward calculator.
+
+    Schemes:
+        - "simple":  raw single-step return
+        - "sharpe":  rolling Sharpe ratio (risk-adjusted)
+        - "sortino": rolling Sortino ratio (downside-risk-adjusted)
+    """
+
+    VALID_SCHEMES: ClassVar[set] = {"simple", "sharpe", "sortino"}
+
+    def __init__(self, scheme: str = "sharpe", lookback: int = 20) -> None:
+        if scheme not in self.VALID_SCHEMES:
+            raise ValueError(f"Unknown reward scheme '{scheme}'. Choose from {self.VALID_SCHEMES}")
+        self.scheme = scheme
+        self.lookback = lookback
+
+    def compute(self, returns: list[float]) -> float:
+        if self.scheme == "simple":
+            return self._simple(returns)
+        elif self.scheme == "sharpe":
+            return self._sharpe(returns)
+        elif self.scheme == "sortino":
+            return self._sortino(returns)
+        return 0.0
+
+    # ------------------------------------------------------------------
+    # Reward implementations
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _simple(returns: list[float]) -> float:
+        """Raw single-step return."""
+        return returns[-1] if returns else 0.0
+
+    def _sharpe(self, returns: list[float]) -> float:
+        """
+        Rolling Sharpe ratio over the lookback window.
+
+        Sharpe = mean(r) / std(r)
+        Returns 0 if insufficient data or zero volatility.
+        """
+        window = self._get_window(returns)
+        if len(window) < 2:
+            return 0.0
+        std = np.std(window)
+        if std < 1e-8:
+            return 0.0
+        return float(np.mean(window) / std)
+
+    def _sortino(self, returns: list[float]) -> float:
+        """
+        Rolling Sortino ratio over the lookback window.
+
+        Sortino = mean(r) / downside_std(r)
+        Only penalizes negative volatility, rewarding consistent upside.
+        """
+        window = self._get_window(returns)
+        if len(window) < 2:
+            return 0.0
+        downside = np.array([r for r in window if r < 0])
+        if len(downside) < 1:
+            # no negative returns in window → excellent, give positive reward
+            return float(np.mean(window)) * 10.0
+        downside_std = np.std(downside)
+        if downside_std < 1e-8:
+            return 0.0
+        return float(np.mean(window) / downside_std)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _get_window(self, returns: list[float]) -> np.ndarray:
+        """Slice the most recent `lookback` returns."""
+        return np.array(returns[-self.lookback :])
