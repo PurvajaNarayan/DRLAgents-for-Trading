@@ -37,7 +37,7 @@ def env(sample_df) -> TradingEnv:
 
 class TestTradingEnv:
     def test_reset_returns_correct_shape(self, env):
-        obs, info = env.reset(seed=0)
+        obs, _info = env.reset(seed=0)
         expected_dim = env.window_size * 5 + 1
         assert obs.shape == (expected_dim,)
         assert obs.dtype == np.float32
