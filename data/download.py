@@ -13,7 +13,7 @@ PROCESSED_DIR = Path(__file__).parent / "processed"
 
 def download_ohlcv(
     tickers: list[str],
-    start: str = "2018-01-01",
+    start: str = "2015-01-01",
     end: str = "2025-12-31",
 ) -> dict[str, pd.DataFrame]:
     """
@@ -27,7 +27,14 @@ def download_ohlcv(
     for ticker in tickers:
         print(f"Downloading {ticker}...")
         df = yf.download(ticker, start=start, end=end, progress=False)
+
+        # yfinance >=0.2.31 returns MultiIndex columns like ("Close", "AAPL")
+        # flatten to just ["Open", "High", "Low", "Close", "Volume"]
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
         df = df[["Open", "High", "Low", "Close", "Volume"]]
+        df.index.name = "Date"
         df.dropna(inplace=True)
 
         path = RAW_DIR / f"{ticker}.csv"
@@ -54,7 +61,7 @@ def prepare_splits(
     if not raw_path.exists():
         raise FileNotFoundError(f"No raw data for {ticker}. Run download_ohlcv first.")
 
-    df = pd.read_csv(raw_path, index_col=0, parse_dates=True)
+    df = pd.read_csv(raw_path, index_col=0, parse_dates=["Date"])
 
     n = len(df)
     train_end = int(n * train_ratio)
