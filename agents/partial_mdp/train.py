@@ -115,14 +115,15 @@ if __name__ == "__main__":
     parser.add_argument("--pretrain_eps", type=int, default=50)
     parser.add_argument("--episodes", type=int, default=500)
     parser.add_argument("--features", choices=["raw", "indicators"], default="raw")
-    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino"], default="sharpe")
+    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino"], default="sharpe")
+    parser.add_argument("--max_episode_steps", type=int, default=252, help="Max steps per episode (default: 252 for 1 year)")
     args = parser.parse_args()
 
     train_df = pd.read_csv(f"data/processed/{args.ticker}_train.csv", index_col=0, parse_dates=["Date"])
     fb = RawOHLCV(window_size=20) if args.features == "raw" else OHLCVWithIndicators(window_size=10)
 
     print("Size of the training dataset is:", train_df.shape)
-    env = TradingEnv(df=train_df, feature_builder=fb, reward_scheme=args.reward)
+    env = TradingEnv(df=train_df, feature_builder=fb, reward_scheme=args.reward, max_episode_steps=args.max_episode_steps)
     
     obs_dim = int(env.observation_space.shape[0])
     act_dim = int(env.action_space.n)
@@ -143,7 +144,7 @@ if __name__ == "__main__":
     pretrain_lstm(env, agent, args.pretrain_eps)
     
     # Phase 2: Train Actor-Critic
-    train_pmdp_ppo(env, agent, args.episodes)
+    train_pmdp_ppo(env, agent, args.episodes, rollout_steps=64)
 
     # Save
     ckpt_path = Path(f"runs/pmdp_{args.ticker}_{args.features}")

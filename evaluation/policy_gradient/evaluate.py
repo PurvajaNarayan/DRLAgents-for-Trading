@@ -121,13 +121,13 @@ if __name__ == "__main__":
     parser.add_argument("--agent", choices=["reinforce", "baseline", "ppo"], default="ppo")
     parser.add_argument("--ticker", default="AAPL")
     parser.add_argument("--features", choices=["raw", "indicators"], default="raw")
-    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino"], default="sharpe")
+    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino"], default="sharpe")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint folder")
     args = parser.parse_args()
 
     # --- load TEST data ---
     test_df = pd.read_csv(
-        f"data/processed/{args.ticker}_val.csv", index_col=0, parse_dates=["Date"]
+        f"data/processed/{args.ticker}_test.csv", index_col=0, parse_dates=["Date"]
     )
     print(f"Test set: {len(test_df)} days of {args.ticker}")
 
@@ -135,7 +135,7 @@ if __name__ == "__main__":
     fb = RawOHLCV(window_size=20) if args.features == "raw" else OHLCVWithIndicators(window_size=10)
 
     # --- environment ---
-    env = TradingEnv(df=test_df, feature_builder=fb, reward_scheme=args.reward)
+    env = TradingEnv(df=test_df, feature_builder=fb, reward_scheme=args.reward, max_episode_steps=None)
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
 

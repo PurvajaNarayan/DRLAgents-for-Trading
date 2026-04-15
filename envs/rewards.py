@@ -17,7 +17,10 @@ class RewardScheme:
         - "sortino": rolling Sortino ratio (downside-risk-adjusted)
     """
 
-    VALID_SCHEMES: ClassVar[set] = {"simple", "sharpe", "sortino"}
+    VALID_SCHEMES: ClassVar[set] = {
+        "simple", "sharpe", "sortino",
+        "action_simple", "action_sharpe", "action_sortino"
+    }
 
     def __init__(self, scheme: str = "sharpe", lookback: int = 20) -> None:
         if scheme not in self.VALID_SCHEMES:
@@ -25,13 +28,18 @@ class RewardScheme:
         self.scheme = scheme
         self.lookback = lookback
 
-    def compute(self, returns: list[float]) -> float:
-        if self.scheme == "simple":
-            return self._simple(returns)
-        elif self.scheme == "sharpe":
-            return self._sharpe(returns)
-        elif self.scheme == "sortino":
-            return self._sortino(returns)
+    def compute(self, returns: list[float], action_returns: list[float] | None = None) -> float:
+        # Determine which returns array to shape based on the scheme prefix
+        active_returns = action_returns if self.scheme.startswith("action_") else returns
+        if active_returns is None:
+            active_returns = returns  # fail-safe if action_returns not provided
+            
+        if self.scheme in ["simple", "action_simple"]:
+            return self._simple(active_returns)
+        elif self.scheme in ["sharpe", "action_sharpe"]:
+            return self._sharpe(active_returns)
+        elif self.scheme in ["sortino", "action_sortino"]:
+            return self._sortino(active_returns)
         return 0.0
 
     # ------------------------------------------------------------------

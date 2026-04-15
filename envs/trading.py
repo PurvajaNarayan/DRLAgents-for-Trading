@@ -37,6 +37,7 @@ class TradingEnv(gym.Env):
         commission: float = 0.001,
         reward_scheme: str = "sharpe",
         render_mode: str | None = None,
+        max_episode_steps: int | None = None,
     ) -> None:
         """
         Args:
@@ -66,6 +67,7 @@ class TradingEnv(gym.Env):
         self.initial_balance = initial_balance
         self.commission = commission
         self.render_mode = render_mode
+        self.max_episode_steps = max_episode_steps
 
         self.reward_fn = RewardScheme(scheme=reward_scheme)
 
@@ -83,7 +85,9 @@ class TradingEnv(gym.Env):
         self._entry_price: float = 0.0
         self._portfolio_values: list[float] = []
         self._returns: list[float] = []
+        self._action_returns: list[float] = []
         self._trade_log: list[dict] = []
+        self._steps_in_episode: int = 0
 
     # ------------------------------------------------------------------
     # Gymnasium API
@@ -92,13 +96,24 @@ class TradingEnv(gym.Env):
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         super().reset(seed=seed)
 
-        self._current_step = self.window_size
+        if self.max_episode_steps is not None:
+            latest_start = max(self.window_size, len(self.df) - 1 - self.max_episode_steps)
+            if latest_start == self.window_size:
+                self._current_step = self.window_size
+            else:
+                # Use gymnasium's np_random initialized by super().reset()
+                self._current_step = self.np_random.integers(self.window_size, latest_start + 1)
+        else:
+            self._current_step = self.window_size
+
         self._balance = self.initial_balance
         self._shares_held = 0
         self._entry_price = 0.0
         self._portfolio_values = [self.initial_balance]
         self._returns = []
+        self._action_returns = []
         self._trade_log = []
+        self._steps_in_episode = 0
 
         obs = self._get_observation()
         info = self._get_info()
@@ -115,7 +130,11 @@ class TradingEnv(gym.Env):
 
         # --- advance time ---
         self._current_step += 1
-        done = self._current_step >= len(self.df) - 1
+        self._steps_in_episode += 1
+        
+        done_eof = self._current_step >= len(self.df) - 1
+        done_max_steps = (self.max_episode_steps is not None) and (self._steps_in_episode >= self.max_episode_steps)
+        done = bool(done_eof or done_max_steps)
 
         new_price = self._current_close()
         new_portfolio = self._portfolio_value(new_price)
@@ -125,10 +144,20 @@ class TradingEnv(gym.Env):
             (new_portfolio - prev_portfolio) / prev_portfolio if prev_portfolio > 0 else 0.0
         )
         self._returns.append(step_return)
+        
+        asset_return = (new_price - current_price) / current_price if current_price > 0 else 0.0
+        
+        if self._shares_held > 0:
+            action_return = asset_return
+        else:
+            action_return = -asset_return
+            
+        self._action_returns.append(action_return)
+        
         self._portfolio_values.append(new_portfolio)
 
         # --- reward ---
-        reward = self.reward_fn.compute(self._returns)
+        reward = self.reward_fn.compute(self._returns, self._action_returns)
 
         obs = self._get_observation()
         info = self._get_info()

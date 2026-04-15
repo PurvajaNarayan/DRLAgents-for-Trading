@@ -125,7 +125,8 @@ if __name__ == "__main__":
     parser.add_argument("--ticker", default="AAPL")
     parser.add_argument("--episodes", type=int, default=500)
     parser.add_argument("--features", choices=["raw", "indicators"], default="raw")
-    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino"], default="sharpe")
+    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino"], default="sharpe")
+    parser.add_argument("--max_episode_steps", type=int, default=252, help="Max steps per episode (default: 252 for 1 year)")
     args = parser.parse_args()
 
     # --- load data ---
@@ -138,7 +139,7 @@ if __name__ == "__main__":
 
     # --- environment ---
     print("Size of the training dataset is:",train_df.shape)
-    env = TradingEnv(df=train_df, feature_builder=fb, reward_scheme=args.reward)
+    env = TradingEnv(df=train_df, feature_builder=fb, reward_scheme=args.reward, max_episode_steps=args.max_episode_steps)
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
 
@@ -155,7 +156,7 @@ if __name__ == "__main__":
     elif args.agent == "ppo":
         config.update({"clip_eps": 0.2, "n_epochs": 10, "batch_size": 64})
         agent = PPOAgent(obs_dim, act_dim, config)
-        train_ppo(env, agent, args.episodes, rollout_steps=2048)
+        train_ppo(env, agent, args.episodes, rollout_steps=64)
 
     # --- save checkpoint ---
     from pathlib import Path
