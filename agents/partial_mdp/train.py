@@ -137,7 +137,7 @@ if __name__ == "__main__":
     parser.add_argument("--features", choices=["raw", "indicators"], default="raw")
     parser.add_argument(
         "--reward",
-        choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino"],
+        choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino", "event_based"],
         default="sharpe",
     )
     parser.add_argument(

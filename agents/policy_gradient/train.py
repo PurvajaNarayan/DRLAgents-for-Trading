@@ -109,7 +109,7 @@ if __name__ == "__main__":
     parser.add_argument("--ticker", default="AAPL")
     parser.add_argument("--episodes", type=int, default=500)
     parser.add_argument("--features", choices=["raw", "indicators"], default="raw")
-    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino"], default="sharpe")
+    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino","event_based"], default="sharpe")
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--entropy_coef", type=float, default=0.05)
     parser.add_argument("--plot_every", type=int, default=50)
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     fb = RawOHLCV(window_size=20) if args.features == "raw" else OHLCVWithIndicators(window_size=20)
 
     # --- environment ---
-    env = TradingEnv(df=train_df, feature_builder=fb, reward_scheme=args.reward)
+    env = TradingEnv(df=train_df, feature_builder=fb, reward_scheme=args.reward, max_episode_steps=252)
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
     print(f"State dim: {obs_dim} | Action dim: {act_dim}")

@@ -103,7 +103,7 @@ if __name__ == "__main__":
     parser.add_argument("--features", choices=["raw", "indicators"], default="raw")
     parser.add_argument(
         "--reward",
-        choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino"],
+        choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino","event_based"],
         default="sharpe",
     )
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint folder")
@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
     # --- load TEST data ---
     test_df = pd.read_csv(
-        f"data/processed/{args.ticker}_val.csv", index_col=0, parse_dates=["Date"]
+        f"data/processed/{args.ticker}_test.csv", index_col=0, parse_dates=["Date"]
     )
     print(f"Test set: {len(test_df)} days of {args.ticker}")
 
