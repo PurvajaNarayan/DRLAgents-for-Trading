@@ -82,7 +82,7 @@ def prepare_splits(
 # ----- CLI usage -----
 if __name__ == "__main__":
     # top 5 high-liquidity stocks as outlined in the proposal
-    TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"]
+    TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "CHWY"]
 
     download_ohlcv(TICKERS)
     for t in TICKERS:

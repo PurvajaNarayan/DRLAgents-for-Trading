@@ -19,7 +19,10 @@ class RewardScheme:
 
     VALID_SCHEMES: ClassVar[set] = {
         "simple", "sharpe", "sortino",
-        "action_simple", "action_sharpe", "action_sortino"
+        "action_simple", "action_sharpe", "action_sortino",
+        "event_based",
+        # Raw dollar portfolio-value delta per step + terminal episode PnL bonus.
+        "portfolio_delta",
     }
 
     def __init__(self, scheme: str = "sharpe", lookback: int = 20) -> None:

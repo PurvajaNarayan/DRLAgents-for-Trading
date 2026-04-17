@@ -12,3 +12,11 @@ data/processed/
 
 # Virtual environments
 .venv/
+
+# Dev stuff
+merge_code.py
+merged_code.txt
+dqn_models/
+models/
+double_dqn_models/
+.cursor/

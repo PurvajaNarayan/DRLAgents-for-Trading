@@ -125,6 +125,9 @@ class TradingEnv(gym.Env):
         current_price = self._current_close()
         prev_portfolio = self._portfolio_value(current_price)
 
+        was_holding = (self._shares_held > 0)
+        entry_price_before = self._entry_price
+
         # --- execute action ---
         self._execute(action, current_price)
 
@@ -157,7 +160,38 @@ class TradingEnv(gym.Env):
         self._portfolio_values.append(new_portfolio)
 
         # --- reward ---
-        reward = self.reward_fn.compute(self._returns, self._action_returns)
+        if self.reward_fn.scheme == "event_based":
+            reward = 0.0
+            if action == self.SELL and was_holding:
+                net_sell = current_price * (1 - self.commission)
+                net_buy = entry_price_before * (1 + self.commission)
+                profit_pct = (net_sell - net_buy) / net_buy if net_buy > 0 else 0.0
+                reward = 10.0 * profit_pct
+            elif action == self.BUY and not was_holding and self._shares_held > 0:
+                # Volatility over the past window_size steps as risk penalty
+                start_idx = max(0, (self._current_step - 1) - self.window_size)
+                end_idx = self._current_step
+                past_closes = self.df["Close"].values[start_idx:end_idx]
+                if len(past_closes) > 1:
+                    returns_arr = np.diff(past_closes) / past_closes[:-1]
+                    volatility = float(np.std(returns_arr))
+                else:
+                    volatility = 0.0
+                reward = -0.1 * volatility
+            elif action == self.HOLD:
+                # if was_holding:
+                #     net_sell = current_price * (1 - self.commission)
+                #     net_buy = entry_price_before * (1 + self.commission)
+                #     current_profit_pct = (net_sell - net_buy) / net_buy if net_buy > 0 else 0.0
+                #     reward = 10.0 * 0.01 * current_profit_pct
+                reward = 0.0
+                # else:
+                #     reward = -0.0001
+            else:
+                # Invalid action penalty (e.g. buying when already holding)
+                reward = -0.0001
+        else:
+            reward = self.reward_fn.compute(self._returns, self._action_returns)
 
         obs = self._get_observation()
         info = self._get_info()

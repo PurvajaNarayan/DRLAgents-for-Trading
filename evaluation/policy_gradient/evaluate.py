@@ -8,8 +8,6 @@ import numpy as np
 import pandas as pd
 
 from agents.policy_gradient.ppo import PPOAgent
-from agents.policy_gradient.reinforce import ReinforceAgent
-from agents.policy_gradient.reinforce_baseline import ReinforceBaselineAgent
 from envs.trading import TradingEnv
 from features import OHLCVWithIndicators, RawOHLCV
 
@@ -118,24 +116,29 @@ def buy_and_hold_baseline(env: TradingEnv) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate trained agent on test set")
-    parser.add_argument("--agent", choices=["reinforce", "baseline", "ppo"], default="ppo")
     parser.add_argument("--ticker", default="AAPL")
     parser.add_argument("--features", choices=["raw", "indicators"], default="raw")
-    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino"], default="sharpe")
+    parser.add_argument(
+        "--reward",
+        choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino", "event_based"],
+        default="sharpe",
+    )
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint folder")
     args = parser.parse_args()
 
     # --- load TEST data ---
     test_df = pd.read_csv(
-        f"data/processed/{args.ticker}_test.csv", index_col=0, parse_dates=["Date"]
+        f"data/processed/{args.ticker}_val.csv", index_col=0, parse_dates=["Date"]
     )
     print(f"Test set: {len(test_df)} days of {args.ticker}")
 
     # --- feature builder ---
-    fb = RawOHLCV(window_size=20) if args.features == "raw" else OHLCVWithIndicators(window_size=10)
+    fb = RawOHLCV(window_size=20) if args.features == "raw" else OHLCVWithIndicators(window_size=20)
 
     # --- environment ---
-    env = TradingEnv(df=test_df, feature_builder=fb, reward_scheme=args.reward, max_episode_steps=None)
+    env = TradingEnv(
+        df=test_df, feature_builder=fb, reward_scheme=args.reward, max_episode_steps=None
+    )
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
 
@@ -211,14 +214,8 @@ if __name__ == "__main__":
 
     # --- load agent ---
     config = {"gamma": 0.99, "lr": 3e-4, "hidden": 128}
-
-    if args.agent == "reinforce":
-        agent = ReinforceAgent(obs_dim, act_dim, config)
-    elif args.agent == "baseline":
-        agent = ReinforceBaselineAgent(obs_dim, act_dim, config)
-    else:
-        config.update({"clip_eps": 0.2, "n_epochs": 10, "batch_size": 64})
-        agent = PPOAgent(obs_dim, act_dim, config)
+    config.update({"clip_eps": 0.2, "n_epochs": 10, "batch_size": 64})
+    agent = PPOAgent(obs_dim, act_dim, config)
 
     from pathlib import Path
 
@@ -257,3 +254,27 @@ if __name__ == "__main__":
     else:
         print("Agent UNDERPERFORMS Buy & Hold")
     print("=" * 60)
+
+    # --- re-run agent to collect trade log for plotting ---
+    obs, info = env.reset()
+    done = False
+    while not done:
+        mask = info.get("action_mask")
+        action, _, _ = agent.select_action(obs, explore=False, action_mask=mask)
+        obs, _, done, _, info = env.step(action)
+
+    # --- plot trading behavior ---
+    from evaluation.plots import plot_behavior
+
+    prices = env.df["Close"].values
+    trade_log = info["trade_log"]
+    buy_steps = [t["step"] for t in trade_log if t["side"] == "BUY"]
+    sell_steps = [t["step"] for t in trade_log if t["side"] == "SELL"]
+    profit = results[0]["final_value"] - results[0]["initial_value"]
+
+    plot_behavior(
+        prices=prices,
+        states_buy=buy_steps,
+        states_sell=sell_steps,
+        profit=profit,
+    )

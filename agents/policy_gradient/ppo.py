@@ -76,7 +76,7 @@ class PPOAgent(BaseAgent):
         self.clip_eps = config.get("clip_eps", 0.2)
         self.n_epochs = config.get("n_epochs", 10)
         self.batch_size = config.get("batch_size", 64)
-        self.entropy_coef = config.get("entropy_coef", 0.01)
+        self.entropy_coef = config.get("entropy_coef", 0.05)
         self.value_coef = config.get("value_coef", 0.5)
         self.max_grad_norm = config.get("max_grad_norm", 0.5)
         self.lr = config.get("lr", 3e-4)
