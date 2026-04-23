@@ -10,8 +10,8 @@ import pandas as pd
 
 from agents.partial_mdp.agent import PMDPAgent
 from envs.trading import TradingEnv
-from features import OHLCVWithIndicators, RawOHLCV
 from evaluation.policy_gradient.evaluate import buy_and_hold_baseline
+from features import OHLCVWithIndicators, RawOHLCV
 
 
 def evaluate(env: TradingEnv, agent: PMDPAgent, n_episodes: int = 1) -> list[dict]:
@@ -25,7 +25,7 @@ def evaluate(env: TradingEnv, agent: PMDPAgent, n_episodes: int = 1) -> list[dic
     for ep in range(n_episodes):
         obs, info = env.reset()
         agent.reset_hidden_state()
-        
+
         done = False
         ep_reward = 0.0
         daily_returns = []
@@ -41,7 +41,7 @@ def evaluate(env: TradingEnv, agent: PMDPAgent, n_episodes: int = 1) -> list[dic
             prev_pv = info["portfolio_value"]
             next_obs, reward, done, _, info = env.step(action)
             ep_reward += reward
-            
+
             # --- update LSTM State ---
             agent.update_hidden_state(obs)
             obs = next_obs
@@ -101,21 +101,27 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate trained PMDP agent on test set")
     parser.add_argument("--ticker", default="AAPL")
     parser.add_argument("--features", choices=["raw", "indicators"], default="raw")
-    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino"], default="sharpe")
+    parser.add_argument(
+        "--reward",
+        choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino","event_based"],
+        default="sharpe",
+    )
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint folder")
     args = parser.parse_args()
 
     # --- load TEST data ---
     test_df = pd.read_csv(
-        f"data/processed/{args.ticker}_test.csv", index_col=0, parse_dates=["Date"]
+        f"data/processed/{args.ticker}_val.csv", index_col=0, parse_dates=["Date"]
     )
     print(f"Test set: {len(test_df)} days of {args.ticker}")
 
     # --- feature builder ---
-    fb = RawOHLCV(window_size=20) if args.features == "raw" else OHLCVWithIndicators(window_size=10)
+    fb = RawOHLCV(window_size=20) if args.features == "raw" else OHLCVWithIndicators(window_size=20)
 
     # --- environment ---
-    env = TradingEnv(df=test_df, feature_builder=fb, reward_scheme=args.reward, max_episode_steps=None)
+    env = TradingEnv(
+        df=test_df, feature_builder=fb, reward_scheme=args.reward, max_episode_steps=None
+    )
     obs_dim = int(env.observation_space.shape[0])
     act_dim = int(env.action_space.n)
 
@@ -197,7 +203,7 @@ if __name__ == "__main__":
         "hidden": 128,
         "clip_eps": 0.2,
         "n_epochs": 10,
-        "batch_size": 64
+        "batch_size": 64,
     }
 
     agent = PMDPAgent(obs_dim, act_dim, config)
@@ -239,3 +245,30 @@ if __name__ == "__main__":
     else:
         print("Agent UNDERPERFORMS Buy & Hold")
     print("=" * 60)
+
+    # --- re-run agent to collect trade log for plotting ---
+    obs, info = env.reset()
+    agent.reset_hidden_state()
+    done = False
+    while not done:
+        mask = info.get("action_mask")
+        action, _, _ = agent.select_action(obs, explore=False, action_mask=mask)
+        next_obs, _, done, _, info = env.step(action)
+        agent.update_hidden_state(obs)
+        obs = next_obs
+
+    # --- plot trading behavior ---
+    from evaluation.plots import plot_behavior
+
+    prices = env.df["Close"].values
+    trade_log = info["trade_log"]
+    buy_steps = [t["step"] for t in trade_log if t["side"] == "BUY"]
+    sell_steps = [t["step"] for t in trade_log if t["side"] == "SELL"]
+    profit = results[0]["final_value"] - results[0]["initial_value"]
+
+    plot_behavior(
+        prices=prices,
+        states_buy=buy_steps,
+        states_sell=sell_steps,
+        profit=profit,
+    )

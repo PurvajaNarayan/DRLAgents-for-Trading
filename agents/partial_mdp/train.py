@@ -19,32 +19,38 @@ def pretrain_lstm(env: TradingEnv, agent: PMDPAgent, n_episodes: int = 50) -> No
     for ep in range(n_episodes):
         obs, info = env.reset()
         done = False
-        
+
         obs_list = [obs]
         act_list = []
-        
+
         while not done:
             mask = info.get("action_mask")
             valid_actions = np.where(mask)[0]
             action = np.random.choice(valid_actions)
-            
+
             obs, _, done, _, info = env.step(action)
-            
+
             obs_list.append(obs)
-            
+
         loss = agent.learn_predictor(obs_list)
         if (ep + 1) % 10 == 0:
             print(f"Pretrain LSTM Ep {ep + 1:3d} | MSE Loss: {loss:.6f}")
 
 
 def train_pmdp_ppo(
-    env: TradingEnv, agent: PMDPAgent, n_episodes: int = 500, rollout_steps: int = 2048
+    env: TradingEnv,
+    agent: PMDPAgent,
+    n_episodes: int = 500,
+    rollout_steps: int = 2048,
+    plot_every: int = 50,
 ) -> list[dict]:
     """Phase 2: Train the Actor-Critic using the frozen LSTM state predictor."""
     print("\n--- Phase 2: Training PMDP Actor-Critic ---")
-    
+
+    from evaluation.plots import plot_behavior
+
     agent.freeze_predictor()
-    
+
     history = []
     obs, info = env.reset()
     agent.reset_hidden_state()
@@ -54,15 +60,12 @@ def train_pmdp_ppo(
 
     while ep < n_episodes:
         mask = info.get("action_mask")
-        
-        # Get action from PPO using LSTM context
+
         hx = agent.current_h
         action, log_prob, value = agent.select_action(obs, action_mask=mask)
-        
-        # Step env
+
         next_obs, reward, done, _, info = env.step(action)
 
-        # Store to buffer WITH hx
         agent.buffer.store(
             obs=obs,
             hx=hx,
@@ -74,7 +77,6 @@ def train_pmdp_ppo(
             action_mask=mask,
         )
 
-        # Step LSTM forward
         agent.update_hidden_state(obs)
 
         obs = next_obs
@@ -83,27 +85,45 @@ def train_pmdp_ppo(
         if done:
             ep += 1
             pv = info["portfolio_value"]
+            profit = pv - env.initial_balance
 
             if ep % 50 == 0:
                 trades = len(info["trade_log"])
                 print(f"Ep {ep:4d} | PV: ${pv:,.2f} | Trades: {trades}")
 
-            history.append({
-                "episode": ep,
-                "portfolio_value": pv,
-                "ep_reward": ep_reward,
-            })
+            # plot behavior
+            if ep % plot_every == 0:
+                prices = env.df["Close"].values
+                trade_log = info["trade_log"]
+                buy_steps = [t["step"] for t in trade_log if t["side"] == "BUY"]
+                sell_steps = [t["step"] for t in trade_log if t["side"] == "SELL"]
+                plot_behavior(
+                    prices=prices,
+                    states_buy=buy_steps,
+                    states_sell=sell_steps,
+                    profit=profit,
+                    episode=ep,
+                )
+
+            history.append(
+                {
+                    "episode": ep,
+                    "portfolio_value": pv,
+                    "ep_reward": ep_reward,
+                }
+            )
             ep_reward = 0.0
-            
+
             obs, info = env.reset()
             agent.reset_hidden_state()
 
-        # Learn after gathering rollout
         if (step + 1) % rollout_steps == 0 and len(agent.buffer) > 0:
             metrics = agent.learn()
             if ep % 50 == 0:
-                print(f"  PPO update | PL: {metrics['policy_loss']:.4f} | VL: {metrics['value_loss']:.4f}")
-                
+                print(
+                    f"  PPO update | PL: {metrics['policy_loss']:.4f} | VL: {metrics['value_loss']:.4f}"
+                )
+
         step += 1
 
     return history
@@ -115,16 +135,32 @@ if __name__ == "__main__":
     parser.add_argument("--pretrain_eps", type=int, default=50)
     parser.add_argument("--episodes", type=int, default=500)
     parser.add_argument("--features", choices=["raw", "indicators"], default="raw")
-    parser.add_argument("--reward", choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino"], default="sharpe")
-    parser.add_argument("--max_episode_steps", type=int, default=252, help="Max steps per episode (default: 252 for 1 year)")
+    parser.add_argument(
+        "--reward",
+        choices=["simple", "sharpe", "sortino", "action_simple", "action_sharpe", "action_sortino", "event_based"],
+        default="sharpe",
+    )
+    parser.add_argument(
+        "--max_episode_steps",
+        type=int,
+        default=252,
+        help="Max steps per episode (default: 252 for 1 year)",
+    )
     args = parser.parse_args()
 
-    train_df = pd.read_csv(f"data/processed/{args.ticker}_train.csv", index_col=0, parse_dates=["Date"])
-    fb = RawOHLCV(window_size=20) if args.features == "raw" else OHLCVWithIndicators(window_size=10)
+    train_df = pd.read_csv(
+        f"data/processed/{args.ticker}_train.csv", index_col=0, parse_dates=["Date"]
+    )
+    fb = RawOHLCV(window_size=20) if args.features == "raw" else OHLCVWithIndicators(window_size=20)
 
     print("Size of the training dataset is:", train_df.shape)
-    env = TradingEnv(df=train_df, feature_builder=fb, reward_scheme=args.reward, max_episode_steps=args.max_episode_steps)
-    
+    env = TradingEnv(
+        df=train_df,
+        feature_builder=fb,
+        reward_scheme=args.reward,
+        max_episode_steps=args.max_episode_steps,
+    )
+
     obs_dim = int(env.observation_space.shape[0])
     act_dim = int(env.action_space.n)
 
@@ -135,18 +171,18 @@ if __name__ == "__main__":
         "hidden": 128,
         "clip_eps": 0.2,
         "n_epochs": 10,
-        "batch_size": 64
+        "batch_size": 64,
     }
 
     agent = PMDPAgent(obs_dim, act_dim, config)
 
     # Phase 1: Train Predictor
     pretrain_lstm(env, agent, args.pretrain_eps)
-    
+
     # Phase 2: Train Actor-Critic
     train_pmdp_ppo(env, agent, args.episodes, rollout_steps=64)
 
     # Save
-    ckpt_path = Path(f"runs/pmdp_{args.ticker}_{args.features}")
+    ckpt_path = Path(f"runs/pmdp_{args.ticker}_{args.features}_{args.reward}")
     agent.save(ckpt_path)
     print(f"\nTraining complete! Checkpoint saved to {ckpt_path}")
